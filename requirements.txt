@@ -1,0 +1,3 @@
+# scoreboard_monitor/requirements.txt
+requests
+wcwidth
