@@ -110,7 +110,8 @@ def _display_game_status_header(status_data: Dict[str, Any]):
 
 def display_scoreboard(team_data: Dict[str, Any], status_data: Dict[str, Any]):
     clear_screen()
-    if not team_data or not status_data: return
+    if not team_data or not status_data:
+        return
 
     _display_game_status_header(status_data)
     
@@ -120,49 +121,86 @@ def display_scoreboard(team_data: Dict[str, Any], status_data: Dict[str, Any]):
     print(f"Posizione: {COLOR_BOLD}{team_data['position']}{COLOR_RESET} | Punteggio Totale: {COLOR_BOLD}{score_str}{COLOR_RESET}\n")
 
     services = team_data.get('services', {})
-    if not services: return
+    if not services:
+        return
     
-    num_services, term_width = len(services), get_terminal_width()
+    # --- NUOVA LOGICA DI WRAPPING DELLE COLONNE ---
+
+    term_width = get_terminal_width()
+    num_services = len(services)
     separator_str = " │ "
-    col_width = (term_width - (num_services - 1) * len(separator_str)) // num_services if num_services > 0 else term_width
+    sep_len = len(separator_str)
     
-    if col_width < 32:
-        print(f"{COLOR_YELLOW}Finestra del terminale troppo stretta.{COLOR_RESET}")
+    # Definiamo una larghezza minima per colonna per garantire la leggibilità.
+    MIN_COL_WIDTH = 32 
+
+    # Se il terminale è troppo stretto anche per una sola colonna, mostra un messaggio.
+    if term_width < MIN_COL_WIDTH:
+        print(f"{COLOR_YELLOW}Finestra del terminale troppo stretta per visualizzare i servizi.{COLOR_RESET}")
         return
 
-    columns = [[] for _ in range(8)]
-    
-    for i, (s_name, s_data) in enumerate(services.items()):
-        sla_adjusted_score = f"🏆 {COLOR_RESET}{s_data['sla_adjusted_score']:.2f} ({_format_score_delta(s_data['sla_adjusted_score_delta'])})"
-        columns[i].append(pad_str(sla_adjusted_score, col_width, 'center'))
-        columns[i].append(pad_str(f"{COLOR_BOLD}{s_name}{COLOR_RESET}", col_width, 'center'))
-        
-        # Le parti di sinistra ora hanno un COLOR_RESET esplicito prima del numero
-        # per evitare "sanguinamenti" di colore dal carattere dell'icona.
-        left_score = f"⭐ {COLOR_RESET}{s_data['score']:.2f}"
-        left_attack = f"⚔️ {COLOR_RESET}{s_data['attack_score']:+.2f} ({s_data['attack_flag']})"
-        left_defense = f"🛡️ {COLOR_RESET}{s_data['defense_score']:+.2f} ({s_data['defense_flag']})"
-        left_sla = f"🌐 {COLOR_RESET}{s_data['sla']:.2f}%"
-        left_checks = f"🔧 [{_get_check_letters(s_data['checks'])}]"
+    # 1. Calcola quante colonne possono stare su una riga.
+    # Si calcola quante coppie (colonna + separatore) entrano nella larghezza del terminale.
+    cols_per_row = (term_width + sep_len) // (MIN_COL_WIDTH + sep_len)
+    cols_per_row = max(1, min(cols_per_row, num_services)) # Assicura almeno 1 e non più del necessario.
 
-        right_score = _format_score_delta(s_data['score_delta'])
-        right_attack = f"{_format_score_delta(s_data['attack_score_delta'])} {_format_flag_delta(s_data['attack_flag_delta'])}"
-        right_defense = f"{_format_score_delta(s_data['defense_score_delta'])} {_format_flag_delta(s_data['defense_flag_delta'])}"
-        right_sla = _format_score_delta(s_data['sla_delta'], with_arrow=True)
-        
-        columns[i].append(_create_aligned_cell(left_score, right_score, col_width))
-        columns[i].append(_create_aligned_cell(left_attack, right_attack, col_width))
-        columns[i].append(_create_aligned_cell(left_defense, right_defense, col_width))
-        columns[i].append(_create_aligned_cell(left_sla, right_sla, col_width))
-        columns[i].append(pad_str(left_checks, col_width))
-        columns[i].append(' ' * col_width)
+    # 2. Calcola la larghezza effettiva di ogni colonna per riempire lo spazio.
+    col_width = (term_width - (cols_per_row - 1) * sep_len) // cols_per_row
 
-    num_rows = len(columns[0]) if columns else 0
-    for r in range(num_rows):
-        if r == 2:
-            print(separator_str.join(['─' * col_width] * num_services))
-        print(separator_str.join([columns[c][r] for c in range(num_services)]))
+    # 3. Itera sui servizi in "blocchi" (chunks)
+    service_items = list(services.items())
     
+    for i in range(0, num_services, cols_per_row):
+        chunk_items = service_items[i:i + cols_per_row]
+        num_cols_in_chunk = len(chunk_items)
+        
+        # Inizializza la struttura dati delle colonne per il blocco corrente
+        columns = [[] for _ in range(num_cols_in_chunk)]
+
+        # Popola le colonne solo per i servizi nel blocco corrente
+        for j, (s_name, s_data) in enumerate(chunk_items):
+            sla_adjusted_score = f"🏆 {COLOR_RESET}{s_data['sla_adjusted_score']:.2f} ({_format_score_delta(s_data['sla_adjusted_score_delta'])})"
+            columns[j].append(pad_str(sla_adjusted_score, col_width, 'center'))
+            columns[j].append(pad_str(f"{COLOR_BOLD}{s_name}{COLOR_RESET}", col_width, 'center'))
+            
+            left_score = f"⭐ {COLOR_RESET}{s_data['score']:.2f}"
+            left_attack = f"⚔️ {COLOR_RESET}{s_data['attack_score']:+.2f} ({s_data['attack_flag']})"
+            left_defense = f"🛡️ {COLOR_RESET}{s_data['defense_score']:+.2f} ({s_data['defense_flag']})"
+            left_sla = f"🌐 {COLOR_RESET}{s_data['sla']:.2f}%"
+
+            right_score = _format_score_delta(s_data['score_delta'])
+            right_attack = f"{_format_score_delta(s_data['attack_score_delta'])} {_format_flag_delta(s_data['attack_flag_delta'])}"
+            right_defense = f"{_format_score_delta(s_data['defense_score_delta'])} {_format_flag_delta(s_data['defense_flag_delta'])}"
+            right_sla = _format_score_delta(s_data['sla_delta'], with_arrow=True)
+            
+            columns[j].append(_create_aligned_cell(left_score, right_score, col_width))
+            columns[j].append(_create_aligned_cell(left_attack, right_attack, col_width))
+            columns[j].append(_create_aligned_cell(left_defense, right_defense, col_width))
+            columns[j].append(_create_aligned_cell(left_sla, right_sla, col_width))
+
+            checks = f"🔧 [{_get_check_letters(s_data['checks'])}]"
+            columns[j].append(pad_str(checks, col_width, 'center'))
+            columns[j].append(' ' * col_width)
+
+        # 4. Stampa le righe di dati per il blocco corrente
+        num_rows = len(columns[0]) if columns else 0
+        for r in range(num_rows):
+            # Aggiungi la linea di separazione orizzontale
+            if r == 2:
+                line_separator = '─' * col_width
+                print(separator_str.join([line_separator] * num_cols_in_chunk))
+            
+            # Stampa la riga corrente unendo le celle del blocco
+            row_content = [columns[c][r] for c in range(num_cols_in_chunk)]
+            print(separator_str.join(row_content))
+
+        # 5. Se ci sono altri blocchi da stampare, aggiungi un separatore visivo
+        if i + cols_per_row < num_services:
+            # Stampa una linea doppia per separare nettamente le righe di blocchi
+            print(f"\n{COLOR_MAGENTA}{'═' * term_width}{COLOR_RESET}\n")
+
+    # --- FINE DELLA NUOVA LOGICA ---
+
     print("")
     if team_data['failing_services']:
         alerts = [f"{COLOR_RED}{s}{COLOR_RESET} ({r})" for s, r in team_data['failing_services'].items()]
