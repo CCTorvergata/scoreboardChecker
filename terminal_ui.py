@@ -53,11 +53,11 @@ def _create_aligned_cell(left: str, right: str, width: int) -> str:
 def _format_score_delta(value: float, with_arrow: bool = False) -> str:
     """Formatta la variazione di un punteggio."""
     if abs(value) < 0.001:
-        return f"{0.0:.2f}"
+        return "-"
     
     color = COLOR_GREEN if value > 0 else COLOR_RED
     arrow = '↑' if value > 0 else '↓'
-    value_str = f"{value:+.2f}" if value > 0 else f"{value:.2f}"
+    value_str = f"{value:+.2f}"
     
     return f"{color}{value_str}{' ' + arrow if with_arrow else ''}{COLOR_RESET}"
 
@@ -65,7 +65,7 @@ def _format_flag_delta(value: int) -> str:
     """Formatta il delta dei flag. Positivo è buono (verde), negativo è cattivo (rosso)."""
     if value == 0: return ""
     color = COLOR_GREEN if value > 0 else COLOR_RED
-    return f"({color}{value:+}{COLOR_RESET})"
+    return f" ({color}{value:+}{COLOR_RESET})"
 
 def _get_check_letters(checks: List[Dict]) -> str:
     output = []
@@ -73,6 +73,26 @@ def _get_check_letters(checks: List[Dict]) -> str:
         color = COLOR_GREEN if check['ok'] else COLOR_RED
         output.append(f"{color}{check['action']}{COLOR_RESET}")
     return ' '.join(output)
+
+def _display_alerts_box(failing_services: Dict[str, str], width: int):
+    """Disegna un riquadro formattato per gli avvisi dei servizi falliti."""
+    
+    title = " AVVISI DI STATO "
+    # Calcola il padding per centrare il titolo
+    padding = (width - len(title) - 2) // 2
+    top_border = f"╭{'─' * padding}{COLOR_BOLD}{title}{COLOR_RESET}{COLOR_YELLOW}{'─' * (width - len(title) - padding - 2)}╮"
+    bottom_border = '╰' + '─' * (width - 2) + '╯'
+
+    print(f"\n{COLOR_YELLOW}{top_border}{COLOR_RESET}")
+
+    for service, reason in failing_services.items():
+        # Costruisci il contenuto della riga
+        content = f"  • {COLOR_RED}{service}{COLOR_RESET}: {reason}"
+        # Crea la riga completa con i bordi verticali e il padding corretto
+        line = f"│{pad_str(content, width - 2)}{COLOR_YELLOW}│"
+        print(f"{COLOR_YELLOW}{line}{COLOR_RESET}")
+
+    print(f"{COLOR_YELLOW}{bottom_border}{COLOR_RESET}")
 
 # --- Funzioni di Rendering Principali ---
 
@@ -105,7 +125,7 @@ def _display_game_status_header(status_data: Dict[str, Any]):
     print(f"Round: {COLOR_BOLD}{current_round}/{total_rounds}{COLOR_RESET} | Freeze al round: {COLOR_YELLOW}{freeze_round}{COLOR_RESET}")
 
     if current_round is not None and current_round >= freeze_round:
-        freeze_msg = "!!! PUNTEGGIO CONGELATO !!!"
+        freeze_msg = f"{COLOR_YELLOW}!!! PUNTEGGIO CONGELATO !!!{COLOR_RESET}"
         print(f"\n{freeze_msg:^{width}}\n")
 
 def display_scoreboard(team_data: Dict[str, Any], status_data: Dict[str, Any]):
@@ -118,7 +138,7 @@ def display_scoreboard(team_data: Dict[str, Any], status_data: Dict[str, Any]):
     score_str = f"{team_data['score']:,.2f}"
     name_str = f"{team_data['name']} ({team_data['shortname']})"
     print(f"{COLOR_BOLD}{COLOR_CYAN}Monitor Team: {name_str}{COLOR_RESET}")
-    print(f"Posizione: {COLOR_BOLD}{team_data['position']}{COLOR_RESET} | Punteggio Totale: {COLOR_BOLD}{score_str}{COLOR_RESET}\n")
+    print(f"Posizione: {COLOR_BOLD}{team_data['position']}{COLOR_RESET} | Punteggio Totale: {COLOR_BOLD}{score_str}{COLOR_RESET} ({_format_score_delta(team_data['score_delta'], with_arrow=True)})\n\n")
 
     services = team_data.get('services', {})
     if not services:
@@ -169,8 +189,8 @@ def display_scoreboard(team_data: Dict[str, Any], status_data: Dict[str, Any]):
             left_sla = f"🌐 {COLOR_RESET}{s_data['sla']:.2f}%"
 
             right_score = _format_score_delta(s_data['score_delta'])
-            right_attack = f"{_format_score_delta(s_data['attack_score_delta'])} {_format_flag_delta(s_data['attack_flag_delta'])}"
-            right_defense = f"{_format_score_delta(s_data['defense_score_delta'])} {_format_flag_delta(s_data['defense_flag_delta'])}"
+            right_attack = f"{_format_score_delta(s_data['attack_score_delta'])}{_format_flag_delta(s_data['attack_flag_delta'])}"
+            right_defense = f"{_format_score_delta(s_data['defense_score_delta'])}{_format_flag_delta(s_data['defense_flag_delta'])}"
             right_sla = _format_score_delta(s_data['sla_delta'], with_arrow=True)
             
             columns[j].append(_create_aligned_cell(left_score, right_score, col_width))
@@ -201,7 +221,6 @@ def display_scoreboard(team_data: Dict[str, Any], status_data: Dict[str, Any]):
 
     # --- FINE DELLA NUOVA LOGICA ---
 
-    print("")
+    # Footer
     if team_data['failing_services']:
-        alerts = [f"{COLOR_RED}{s}{COLOR_RESET} ({r})" for s, r in team_data['failing_services'].items()]
-        print(f"{COLOR_YELLOW}AVVISO: Problemi di operatività rilevati per i seguenti servizi: {', '.join(alerts)}")
+        _display_alerts_box(team_data['failing_services'], term_width)

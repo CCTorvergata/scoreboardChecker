@@ -20,12 +20,28 @@ def process_data_for_display(current_data: dict, previous_data: dict | None, tea
 
     if not current_team:
         return None
+    
+    # --- CALCOLO DELLO SCORE_DELTA ---
+
+    # 1. Ottieni il punteggio totale attuale del team.
+    current_total_score = current_team.get('score', 0)
+    
+    # 2. Ottieni il punteggio totale precedente.
+    #    Se i dati precedenti non esistono (al primo avvio), usa il punteggio attuale
+    #    per far sì che il delta iniziale sia zero.
+    previous_total_score = previous_team.get('score', 0) if previous_team else current_total_score
+
+    # 3. Calcola la differenza.
+    score_delta = current_total_score - previous_total_score
+    
+    # --- FINE CALCOLO ---
 
     processed = {
         'name': current_team.get('name'),
         'shortname': current_team.get('shortname'),
         'position': current_team.get('position'),
         'score': current_team.get('score'),
+        'score_delta': score_delta,
         'services': {},
         'failing_services': {}
     }
