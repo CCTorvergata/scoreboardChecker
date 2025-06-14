@@ -133,7 +133,8 @@ def display_scoreboard(team_data: Dict[str, Any], status_data: Dict[str, Any]):
     columns = [[] for _ in range(8)]
     
     for i, (s_name, s_data) in enumerate(services.items()):
-        columns[i].append(pad_str(f"🏆 {s_data['sla_adjusted_score']:.2f}", col_width, 'center'))
+        sla_adjusted_score = f"🏆 {COLOR_RESET}{s_data['sla_adjusted_score']:.2f} ({_format_score_delta(s_data['sla_adjusted_score_delta'])})"
+        columns[i].append(pad_str(sla_adjusted_score, col_width, 'center'))
         columns[i].append(pad_str(f"{COLOR_BOLD}{s_name}{COLOR_RESET}", col_width, 'center'))
         
         # Le parti di sinistra ora hanno un COLOR_RESET esplicito prima del numero

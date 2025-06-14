@@ -36,7 +36,7 @@ def process_data_for_display(current_data: dict, previous_data: dict | None, tea
         s_name = service['shortname']
         prev_s = prev_services.get(s_name)
 
-        # Calcolo Punteggi
+        # Calcolo Punteggi Correnti
         score = service.get('score', 0)
         attacker_score = service.get('attackerScore', 0)
         attack_flag = service.get('stolen', 0)
@@ -45,15 +45,19 @@ def process_data_for_display(current_data: dict, previous_data: dict | None, tea
         sla = (service['successfulChecks'] / service['totalChecks']) * 100 if service['totalChecks'] > 0 else 0.0
         sla_adjusted_score = score * (sla / 100.0)
 
-        # Calcolo Delta
-        score_delta = score - prev_s['score'] if prev_s else 0
-        attacker_score_delta = attacker_score - prev_s.get('attackerScore', 0) if prev_s else 0
-        victim_score_delta = victim_score - prev_s.get('victimScore', 0) if prev_s else 0
-        
-        sla_delta = 0.0
+        # Calcolo Punteggi Precedenti (se esistono)
+        prev_score = prev_s.get('score', 0) if prev_s else 0
+        prev_sla = 0.0
         if prev_s and prev_s.get('totalChecks', 0) > 0:
             prev_sla = (prev_s['successfulChecks'] / prev_s['totalChecks']) * 100
-            sla_delta = sla - prev_sla
+        prev_sla_adjusted_score = prev_score * (prev_sla / 100.0)
+
+        # Calcolo Delta
+        score_delta = score - prev_score
+        attacker_score_delta = attacker_score - (prev_s.get('attackerScore', 0) if prev_s else 0)
+        victim_score_delta = victim_score - (prev_s.get('victimScore', 0) if prev_s else 0)
+        sla_delta = sla - prev_sla
+        sla_adjusted_score_delta = sla_adjusted_score - prev_sla_adjusted_score
         
         attack_flag_delta = service['stolen'] - prev_s.get('stolen', 0) if prev_s else service['stolen']
         defense_flag_delta = -(service['lost'] - prev_s.get('lost', 0) if prev_s else service['lost'])
@@ -90,6 +94,7 @@ def process_data_for_display(current_data: dict, previous_data: dict | None, tea
             'sla': sla,
             'sla_delta': sla_delta,
             'sla_adjusted_score': sla_adjusted_score,
+            'sla_adjusted_score_delta': sla_adjusted_score_delta,
             'attack_score': attacker_score,
             'attack_flag': attack_flag,
             'attack_score_delta': attacker_score_delta,
