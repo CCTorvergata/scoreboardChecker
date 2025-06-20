@@ -2,67 +2,106 @@
 
 import time
 from datetime import datetime
-import signal  # <-- Importato
-import os      # <-- Importato
+import signal
 
 import api_client
 import data_processor
 import terminal_ui
-from config import TARGET_TEAM_SHORTNAME, DEFAULT_TICK_DURATION_SECONDS, COLOR_YELLOW, COLOR_RESET, COLOR_RED
+from config import TARGET_TEAM_SHORTNAME, DEFAULT_TICK_DURATION_SECONDS, COLOR_YELLOW, COLOR_RESET, COLOR_RED, COLOR_GREEN, COLOR_BOLD
 
-# --- Gestione del ridimensionamento del terminale ---
-
-# Variabile globale per segnalare la necessità di un ridisegno
+# --- Gestione ridimensionamento e flag ---
 NEEDS_REDRAW = False
 
 def handle_resize(signum, frame):
-    """
-    Questa funzione viene chiamata quando il terminale viene ridimensionato.
-    Imposta semplicemente un flag.
-    """
     global NEEDS_REDRAW
     NEEDS_REDRAW = True
 
-# --- Fine gestione resize ---
-
-
-def main_loop():
+# --- Funzione di Sincronizzazione ---
+def synchronize_and_wait_for_next_tick(initial_round: int):
     """
-    Loop principale che orchestra il fetching, la processazione e la visualizzazione dei dati,
-    gestendo anche il ridimensionamento della finestra.
+    Attende attivamente l'inizio del prossimo round per sincronizzare l'esecuzione.
     """
-    # Registra la funzione handle_resize per il segnale SIGWINCH, se disponibile
+    print(f"\n{COLOR_YELLOW}Snapshot visualizzato. In attesa del round {initial_round + 1} per la sincronizzazione...{COLOR_RESET}")
+    
+    while True:
+        time.sleep(5) # Intervallo di polling
+        current_status = api_client.fetch_game_status()
+
+        if current_status and current_status.get('scoreboardRound') is not None:
+            new_round = current_status.get('scoreboardRound')
+            if new_round > initial_round:
+                print(f"\n{COLOR_GREEN}Sincronizzato!{COLOR_RESET} Caricamento dati per il round {COLOR_BOLD}{new_round}{COLOR_RESET}.")
+                time.sleep(1)
+                return current_status
+    return None
+
+# --- Loop Principale ---
+def main():
+    """
+    Orchestra l'intero processo: snapshot iniziale, sincronizzazione e loop di monitoraggio.
+    """
     if hasattr(signal, 'SIGWINCH'):
         signal.signal(signal.SIGWINCH, handle_resize)
 
-    previous_scoreboard_data = None
-    last_processed_round = -1
+    # --- 1. VISUALIZZAZIONE DELLO SNAPSHOT INIZIALE ---
+    print(f"{COLOR_YELLOW}Recupero snapshot iniziale della scoreboard...{COLOR_RESET}")
     
-    # Variabili per conservare gli ultimi dati validi per il ridisegno
+    status_data = api_client.fetch_game_status()
+    if not status_data or status_data.get('scoreboardRound') is None:
+        print(f"{COLOR_RED}Impossibile recuperare lo stato iniziale. Uscita.{COLOR_RESET}")
+        return
+
+    current_round = status_data.get('scoreboardRound')
+    
+    # Se la partita non è ancora iniziata, salta lo snapshot e sincronizza direttamente
+    if current_round == 0:
+        print("La partita è al round 0. In attesa del primo round per iniziare...")
+        status_data = synchronize_and_wait_for_next_tick(0)
+        if not status_data: return
+        current_round = status_data.get('scoreboardRound')
+
+    print(f"Visualizzazione dei dati per il round attuale: {COLOR_BOLD}{current_round}{COLOR_RESET}")
+    
+    # Recupera i dati per lo snapshot
+    snapshot_scoreboard_data = api_client.fetch_scoreboard_data(current_round)
+    snapshot_previous_data = api_client.fetch_scoreboard_data(current_round - 1)
+
+    if not snapshot_scoreboard_data:
+        print(f"{COLOR_RED}Impossibile recuperare i dati della scoreboard per il round {current_round}.{COLOR_RESET}")
+        # Procede comunque alla sincronizzazione
+    else:
+        processed_snapshot = data_processor.process_data_for_display(
+            snapshot_scoreboard_data, snapshot_previous_data, TARGET_TEAM_SHORTNAME
+        )
+        if processed_snapshot:
+            terminal_ui.display_scoreboard(processed_snapshot, status_data)
+            if processed_snapshot.get('failing_services'):
+                terminal_ui.play_alert_sound()
+    
+    # --- 2. SINCRONIZZAZIONE CON IL TICK SUCCESSIVO ---
+    status_data = synchronize_and_wait_for_next_tick(current_round)
+    if not status_data: return # Esce se la sincronizzazione fallisce
+
+    # --- 3. INIZIO DEL LOOP DI MONITORAGGIO PRINCIPALE ---
+    last_processed_round = current_round
+    previous_scoreboard_data = snapshot_scoreboard_data
     last_processed_data = None
     last_status_data = None
 
-    print("Avvio del monitor... Recupero lo stato iniziale della partita.")
-    
     while True:
         try:
-            # La logica di fetch rimane la stessa
-            status_data = api_client.fetch_game_status()
+            # La prima iterazione usa i dati già ottenuti dalla sincronizzazione
+            if status_data is None:
+                status_data = api_client.fetch_game_status()
             
             if not status_data:
-                print(f"{COLOR_YELLOW}Impossibile recuperare lo stato della partita. Riprovo tra 30 secondi...{COLOR_RESET}")
+                print(f"{COLOR_YELLOW}Impossibile recuperare lo stato della partita. Riprovo...{COLOR_RESET}")
                 time.sleep(30)
                 continue
 
             scoreboard_round = status_data.get('scoreboardRound')
-
-            if scoreboard_round is not None and scoreboard_round != last_processed_round:
-                # Se è il primo ciclo, tenta di recuperare il round precedente
-                if last_processed_round == -1 and scoreboard_round > 0:
-                    print(f"Avvio a metà partita. Tento di recuperare il round {scoreboard_round - 1} per i calcoli delta...")
-                    previous_scoreboard_data = api_client.fetch_scoreboard_data(scoreboard_round - 1)
-                
-                # Fetch e processamento dei dati correnti
+            
+            if scoreboard_round is not None and scoreboard_round > last_processed_round:
                 current_scoreboard_data = api_client.fetch_scoreboard_data(scoreboard_round)
                 if current_scoreboard_data:
                     processed_data = data_processor.process_data_for_display(
@@ -72,28 +111,26 @@ def main_loop():
                         last_processed_data = processed_data
                         last_status_data = status_data
                         terminal_ui.display_scoreboard(processed_data, status_data)
-                        
                         if processed_data.get('failing_services'):
                             terminal_ui.play_alert_sound()
-
+                        
                         previous_scoreboard_data = current_scoreboard_data
                         last_processed_round = scoreboard_round
 
-            # --- NUOVO CICLO DI ATTESA INTELLIGENTE ---
-            # Sostituisce il singolo time.sleep() per essere reattivo
+            # Ciclo di attesa reattivo
             global NEEDS_REDRAW
-            round_duration = status_data.get('roundTime', DEFAULT_TICK_DURATION_SECONDS)
+            wait_duration = status_data.get('roundTime', DEFAULT_TICK_DURATION_SECONDS)
             sleep_start_time = time.time()
             
-            while time.time() - sleep_start_time < round_duration:
+            while time.time() - sleep_start_time < wait_duration:
                 if NEEDS_REDRAW:
-                    NEEDS_REDRAW = False  # Resetta il flag
-                    # Ridisegna l'interfaccia con gli ultimi dati validi
+                    NEEDS_REDRAW = False
                     if last_processed_data and last_status_data:
                         terminal_ui.display_scoreboard(last_processed_data, last_status_data)
-                
-                # Dormi per un breve intervallo per non consumare troppa CPU
                 time.sleep(0.2)
+            
+            # Resetta per forzare il fetch alla prossima iterazione
+            status_data = None
 
         except KeyboardInterrupt:
             print("\nMonitoraggio interrotto dall'utente. Arrivederci!")
@@ -103,4 +140,4 @@ def main_loop():
             time.sleep(30)
 
 if __name__ == "__main__":
-    main_loop()
+    main()
